@@ -1,0 +1,10 @@
+[package]
+name = "memory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+utils = { git = "https://github.com/avitran0/utils" }
+bytemuck = { version = "1.25", features = ["derive"] }
+glam = "0.32"
+libc = "0.2"
