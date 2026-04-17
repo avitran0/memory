@@ -34,14 +34,19 @@ impl Process {
             )
         })?;
 
-        Self::open_pid(pid)
+        Self::open_pid(pid, Some(name))
     }
 
-    pub fn open_pid(pid: i32) -> std::io::Result<Self> {
+    pub fn open_pid(pid: i32, name: Option<ProcessName>) -> std::io::Result<Self> {
         let map = ProcessMap::read(pid)?;
         let string_cache = RefCell::new(HashMap::new());
+        let name = name.unwrap_or(ProcessName {
+            name: "",
+            kind: ProcessKind::Native,
+        });
 
         Ok(Self {
+            name,
             pid,
             map,
             string_cache,
@@ -293,14 +298,43 @@ impl Process {
         ))
     }
 
-    fn find_export(&self, entry: &MapsEntry, name: &str) -> std::io::Result<usize> {
+    pub fn find_export(&self, entry: &MapsEntry, name: &str) -> std::io::Result<usize> {
         let data = self.dump_library(entry)?;
         match self.name.kind {
             ProcessKind::Native => {
                 let elf = goblin::elf::Elf::parse(&data).map_err(Error::other)?;
+
+                for sym in &elf.dynsyms {
+                    let Some(sym_name) = elf.dynstrtab.get_at(sym.st_name) else {
+                        continue;
+                    };
+                    if sym_name == name {
+                        return Ok(entry.start + sym.st_value as usize);
+                    }
+                }
+
+                Err(Error::new(
+                    ErrorKind::NotFound,
+                    format!("Export '{}' not found in ELF", name),
+                ))
             }
             ProcessKind::Proton => {
                 let pe = goblin::pe::PE::parse(&data).map_err(Error::other)?;
+
+                for export in &pe.exports {
+                    let Some(export_name) = export.name else {
+                        continue;
+                    };
+                    if export_name == name {
+                        let export_rva = export.rva;
+                        return Ok(entry.start + export_rva);
+                    }
+                }
+
+                Err(Error::new(
+                    ErrorKind::NotFound,
+                    format!("Export '{}' not found in PE", name),
+                ))
             }
         }
     }
