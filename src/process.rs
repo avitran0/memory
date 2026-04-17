@@ -191,18 +191,18 @@ impl Process {
         }
     }
 
-    fn dump_library(&self, library: &Library) -> std::io::Result<Vec<u8>> {
+    fn dump_library(&self, library: &Library) -> Option<Vec<u8>> {
         let file = format!("/proc/{}/mem", self.pid);
-        let file = File::open(file)?;
+        let file = File::open(file).ok()?;
         let mut reader = BufReader::new(file);
 
-        reader.seek(SeekFrom::Start(library.start as u64))?;
+        reader.seek(SeekFrom::Start(library.start as u64)).ok()?;
         let mut buf = vec![0; library.end - library.start];
-        reader.read_exact(&mut buf)?;
-        Ok(buf)
+        reader.read_exact(&mut buf).ok()?;
+        Some(buf)
     }
 
-    pub fn scan(&self, pattern: &str, library: &Library) -> std::io::Result<usize> {
+    pub fn scan(&self, pattern: &str, library: &Library) -> Option<usize> {
         let mut bytes = Vec::with_capacity(8);
         let mut mask = Vec::with_capacity(8);
 
@@ -227,7 +227,7 @@ impl Process {
 
         let module = self.dump_library(library)?;
         if module.len() < 500 {
-            return Err(std::io::Error::other("Not a valid Library"));
+            return None;
         }
 
         let scan_func = if bytes.len() <= 32 && is_x86_feature_detected!("avx2") {
@@ -239,14 +239,11 @@ impl Process {
         if let Some(address) =
             scan_func(&bytes, &mask, &module).map(|address| library.start + address)
         {
-            return Ok(address);
+            return Some(address);
         }
 
         utils::info!("pattern {pattern} not found, might be outdated");
-        Err(Error::new(
-            ErrorKind::NotFound,
-            format!("{} was not found", library.path.display()),
-        ))
+        None
     }
 
     pub fn find_export(&self, entry: &Library, name: &str) -> std::io::Result<usize> {
