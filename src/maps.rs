@@ -75,14 +75,18 @@ impl MapsEntry {
         }
 
         let address_range = parts[0].split_once('-')?;
-        let start = usize::from_str_radix(address_range.0, 16).unwrap_or_default();
-        let end = usize::from_str_radix(address_range.1, 16).unwrap_or_default();
+        let Ok(start) = usize::from_str_radix(address_range.0, 16) else {
+            return None;
+        };
+        let Ok(end) = usize::from_str_radix(address_range.1, 16) else {
+            return None;
+        };
 
         let kind = match parts.get(5) {
             Some(pathname) => match *pathname {
                 "[stack]" => EntryKind::Stack,
                 "[heap]" => EntryKind::Heap,
-                "[vvar]" | "[vvar_clock]" | "[vdso]" => return None,
+                "[vvar]" | "[vvar_clock]" | "[vdso]" | "[vsyscall]" => return None,
                 other => EntryKind::File(PathBuf::from(other)),
             },
             None => EntryKind::Anonymous,

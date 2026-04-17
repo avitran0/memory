@@ -60,27 +60,7 @@ impl Process {
         let mut value = T::default();
         let buffer = bytemuck::bytes_of_mut(&mut value);
 
-        let local_iov = libc::iovec {
-            iov_base: buffer.as_mut_ptr().cast(),
-            iov_len: buffer.len(),
-        };
-        let remote_iov = libc::iovec {
-            iov_base: address as *mut libc::c_void,
-            iov_len: buffer.len(),
-        };
-
-        let result = unsafe {
-            libc::process_vm_readv(
-                self.pid,
-                &raw const local_iov,
-                1,
-                &raw const remote_iov,
-                1,
-                0,
-            )
-        };
-
-        Self::handle_error(result, size_of::<T>().cast_signed())?;
+        self.read_impl(address, buffer)?;
 
         Ok(value)
     }
@@ -96,27 +76,7 @@ impl Process {
 
         let mut buffer = vec![0u8; stride * count];
 
-        let local_iov = libc::iovec {
-            iov_base: buffer.as_mut_ptr().cast(),
-            iov_len: buffer.len(),
-        };
-        let remote_iov = libc::iovec {
-            iov_base: address as *mut libc::c_void,
-            iov_len: buffer.len(),
-        };
-
-        let result = unsafe {
-            libc::process_vm_readv(
-                self.pid,
-                &raw const local_iov,
-                1,
-                &raw const remote_iov,
-                1,
-                0,
-            )
-        };
-
-        Self::handle_error(result, buffer.len().cast_signed())?;
+        self.read_impl(address, &mut buffer)?;
 
         let mut result = vec![T::default(); count];
         let result_ptr = result.as_mut_ptr().cast::<u8>();
@@ -135,27 +95,7 @@ impl Process {
     pub fn read_bytes<const BYTES: usize>(&self, address: usize) -> std::io::Result<[u8; BYTES]> {
         let mut value = [0; BYTES];
 
-        let local_iov = libc::iovec {
-            iov_base: value.as_mut_ptr().cast(),
-            iov_len: value.len(),
-        };
-        let remote_iov = libc::iovec {
-            iov_base: address as *mut libc::c_void,
-            iov_len: value.len(),
-        };
-
-        let result = unsafe {
-            libc::process_vm_readv(
-                self.pid,
-                &raw const local_iov,
-                1,
-                &raw const remote_iov,
-                1,
-                0,
-            )
-        };
-
-        Self::handle_error(result, BYTES.cast_signed())?;
+        self.read_impl(address, &mut value)?;
 
         Ok(value)
     }
@@ -224,6 +164,30 @@ impl Process {
         }
 
         String::from_utf8(bytes).map_err(Error::other)
+    }
+
+    fn read_impl(&self, address: usize, buffer: &mut [u8]) -> std::io::Result<()> {
+        let local_iov = libc::iovec {
+            iov_base: buffer.as_mut_ptr().cast(),
+            iov_len: buffer.len(),
+        };
+        let remote_iov = libc::iovec {
+            iov_base: address as *mut libc::c_void,
+            iov_len: buffer.len(),
+        };
+
+        let result = unsafe {
+            libc::process_vm_readv(
+                self.pid,
+                &raw const local_iov,
+                1,
+                &raw const remote_iov,
+                1,
+                0,
+            )
+        };
+
+        Self::handle_error(result, buffer.len().cast_signed())
     }
 
     fn handle_error(result: isize, expected: isize) -> std::io::Result<()> {
