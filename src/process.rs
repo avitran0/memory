@@ -1,4 +1,6 @@
 use std::{
+    cell::RefCell,
+    collections::HashMap,
     fs::File,
     io::{BufReader, Read, Seek, SeekFrom},
 };
@@ -26,6 +28,7 @@ impl Process {
 pub(crate) struct SharedProcess {
     pid: i32,
     map: ProcessMap,
+    string_cache: RefCell<HashMap<usize, String>>,
 }
 
 impl SharedProcess {
@@ -36,14 +39,21 @@ impl SharedProcess {
                 find_pid(|exe, cmdline| exe == "wine64-preloader" && cmdline.ends_with(name.name))
             }
         }
-        .ok_or(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("Process {} was not found", name),
-        ))?;
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Process {} was not found", name),
+            )
+        })?;
 
         let map = ProcessMap::read(pid)?;
+        let string_cache = RefCell::new(HashMap::new());
 
-        Ok(Self { pid, map })
+        Ok(Self {
+            pid,
+            map,
+            string_cache,
+        })
     }
 
     pub fn read<T: Default + AnyBitPattern + NoUninit>(&self, address: usize) -> T {
@@ -169,6 +179,18 @@ impl SharedProcess {
     }
 
     pub fn read_string(&self, address: usize) -> String {
+        if let Some(cached) = self.string_cache.borrow().get(&address).cloned() {
+            return cached;
+        }
+
+        let string = self.read_string_uncached(address);
+        self.string_cache
+            .borrow_mut()
+            .insert(address, string.clone());
+        string
+    }
+
+    pub fn read_string_uncached(&self, address: usize) -> String {
         let mut bytes = Vec::with_capacity(8);
         let mut i = address;
         loop {
