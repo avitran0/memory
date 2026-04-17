@@ -46,6 +46,10 @@ impl SharedProcess {
             )
         })?;
 
+        Self::open_pid(pid)
+    }
+
+    pub fn open_pid(pid: i32) -> std::io::Result<Self> {
         let map = ProcessMap::read(pid)?;
         let string_cache = RefCell::new(HashMap::new());
 
@@ -300,6 +304,10 @@ impl SharedProcess {
             format!("{} was not found", library.kind),
         ))
     }
+
+    pub fn map(&self) -> &ProcessMap {
+        &self.map
+    }
 }
 
 fn scan_normal(bytes: &[u8], mask: &[u8], library: &[u8]) -> Option<usize> {
@@ -378,5 +386,5 @@ impl std::fmt::Display for ProcessName {
 }
 
 pub(crate) trait PlatformProcess {
-    fn find_export(shared: &SharedProcess, entry: &MapsEntry) -> std::io::Result<usize>;
+    fn find_export(shared: &SharedProcess, entry: &MapsEntry, name: &str) -> std::io::Result<usize>;
 }

@@ -48,7 +48,13 @@ impl ProcessMap {
             let EntryKind::File(file) = &entry.kind else {
                 return false;
             };
-            file.ends_with(library)
+            let Some(file_name) = file.file_name() else {
+                return false;
+            };
+            let Some(file_name) = file_name.to_str() else {
+                return false;
+            };
+            file_name.contains(library)
         })
     }
 }
@@ -76,6 +82,7 @@ impl MapsEntry {
             Some(pathname) => match *pathname {
                 "[stack]" => EntryKind::Stack,
                 "[heap]" => EntryKind::Heap,
+                "[vvar]" | "[vvar_clock]" | "[vdso]" => return None,
                 other => EntryKind::File(PathBuf::from(other)),
             },
             None => EntryKind::Anonymous,
