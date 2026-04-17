@@ -303,6 +303,18 @@ impl Process {
         }
     }
 
+    pub fn get_relative_address(
+        &self,
+        instruction: usize,
+        offset: usize,
+        instruction_size: usize,
+    ) -> std::io::Result<usize> {
+        let rip_address: i32 = self.read(instruction + offset)?;
+        Ok(instruction
+            .wrapping_add(instruction_size)
+            .wrapping_add_signed(rip_address as isize))
+    }
+
     pub fn map(&self) -> &ProcessMap {
         &self.map
     }
