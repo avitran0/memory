@@ -53,16 +53,13 @@ impl Process {
         })
     }
 
-    pub fn read<T: Default + AnyBitPattern + NoUninit>(
-        &self,
-        address: usize,
-    ) -> std::io::Result<T> {
+    pub fn read<T: Default + AnyBitPattern + NoUninit>(&self, address: usize) -> T {
         let mut value = T::default();
         let buffer = bytemuck::bytes_of_mut(&mut value);
 
-        self.read_impl(address, buffer)?;
+        self.read_impl(address, buffer);
 
-        Ok(value)
+        value
     }
 
     pub fn read_vec<T: Default + AnyBitPattern>(
@@ -70,13 +67,13 @@ impl Process {
         address: usize,
         stride: usize,
         count: usize,
-    ) -> std::io::Result<Vec<T>> {
+    ) -> Vec<T> {
         let size = size_of::<T>();
         assert!(stride >= size);
 
         let mut buffer = vec![0u8; stride * count];
 
-        self.read_impl(address, &mut buffer)?;
+        self.read_impl(address, &mut buffer);
 
         let mut result = vec![T::default(); count];
         let result_ptr = result.as_mut_ptr().cast::<u8>();
@@ -89,22 +86,18 @@ impl Process {
             }
         }
 
-        Ok(result)
+        result
     }
 
-    pub fn read_bytes<const BYTES: usize>(&self, address: usize) -> std::io::Result<[u8; BYTES]> {
+    pub fn read_bytes<const BYTES: usize>(&self, address: usize) -> [u8; BYTES] {
         let mut value = [0; BYTES];
 
-        self.read_impl(address, &mut value)?;
+        self.read_impl(address, &mut value);
 
-        Ok(value)
+        value
     }
 
-    pub fn write<T: AnyBitPattern + NoUninit>(
-        &self,
-        address: usize,
-        mut value: T,
-    ) -> std::io::Result<()> {
+    pub fn write<T: AnyBitPattern + NoUninit>(&self, address: usize, mut value: T) {
         let buffer = bytemuck::bytes_of_mut(&mut value);
 
         let local_iov = libc::iovec {
@@ -127,29 +120,29 @@ impl Process {
             )
         };
 
-        Self::handle_error(result, size_of::<T>().cast_signed())
+        Self::handle_error(result, size_of::<T>().cast_signed());
     }
 
-    pub fn read_string(&self, address: usize) -> std::io::Result<String> {
+    pub fn read_string(&self, address: usize) -> String {
         if let Some(cached) = self.string_cache.borrow().get(&address).cloned() {
-            return Ok(cached);
+            return cached;
         }
 
-        let string = self.read_string_uncached(address)?;
+        let string = self.read_string_uncached(address);
         self.string_cache
             .borrow_mut()
             .insert(address, string.clone());
-        Ok(string)
+        string
     }
 
-    pub fn read_string_uncached(&self, address: usize) -> std::io::Result<String> {
+    pub fn read_string_uncached(&self, address: usize) -> String {
         const BATCH_SIZE: usize = 64;
         let mut bytes = Vec::with_capacity(BATCH_SIZE);
         let mut buffer = [0u8; BATCH_SIZE];
         let mut current_address = address;
 
         loop {
-            let chunk = self.read_bytes::<BATCH_SIZE>(current_address)?;
+            let chunk = self.read_bytes::<BATCH_SIZE>(current_address);
             buffer.copy_from_slice(&chunk);
 
             if let Some(null_pos) = buffer.iter().position(|&b| b == 0) {
@@ -158,15 +151,13 @@ impl Process {
             }
 
             bytes.extend_from_slice(&buffer);
-            current_address = current_address
-                .checked_add(BATCH_SIZE)
-                .ok_or_else(|| Error::other("Address overflow"))?;
+            current_address += BATCH_SIZE;
         }
 
-        String::from_utf8(bytes).map_err(Error::other)
+        String::from_utf8(bytes).unwrap_or_default()
     }
 
-    fn read_impl(&self, address: usize, buffer: &mut [u8]) -> std::io::Result<()> {
+    fn read_impl(&self, address: usize, buffer: &mut [u8]) {
         let local_iov = libc::iovec {
             iov_base: buffer.as_mut_ptr().cast(),
             iov_len: buffer.len(),
@@ -187,21 +178,17 @@ impl Process {
             )
         };
 
-        Self::handle_error(result, buffer.len().cast_signed())
+        Self::handle_error(result, buffer.len().cast_signed());
     }
 
-    fn handle_error(result: isize, expected: isize) -> std::io::Result<()> {
+    fn handle_error(result: isize, expected: isize) {
         if result == -1 {
-            return Err(Error::last_os_error());
+            panic!("{}", Error::last_os_error());
         }
 
         if result < expected {
-            return Err(Error::other(format!(
-                "Partial transfer: {result} out of {expected} bytes"
-            )));
+            panic!("Partial transfer: {result} out of {expected} bytes");
         }
-
-        Ok(())
     }
 
     fn dump_library(&self, library: &Library) -> std::io::Result<Vec<u8>> {
@@ -308,11 +295,11 @@ impl Process {
         instruction: usize,
         offset: usize,
         instruction_size: usize,
-    ) -> std::io::Result<usize> {
-        let rip_address: i32 = self.read(instruction + offset)?;
-        Ok(instruction
+    ) -> usize {
+        let rip_address: i32 = self.read(instruction + offset);
+        instruction
             .wrapping_add(instruction_size)
-            .wrapping_add_signed(rip_address as isize))
+            .wrapping_add_signed(rip_address as isize)
     }
 
     pub fn map(&self) -> &ProcessMap {

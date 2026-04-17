@@ -1,6 +1,6 @@
 use std::fs::{read_dir, read_link, read_to_string};
 
-pub fn find_pid(func: impl Fn(&str, &str) -> bool) -> Option<i32> {
+pub(crate) fn find_pid(func: impl Fn(&str, &str) -> bool) -> Option<i32> {
     let Ok(read_dir) = read_dir("/proc") else {
         return None;
     };

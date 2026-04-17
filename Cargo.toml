@@ -6,6 +6,5 @@ edition = "2024"
 [dependencies]
 utils = { git = "https://github.com/avitran0/utils" }
 bytemuck = { version = "1.25", features = ["derive"] }
-glam = "0.32"
 goblin = "0.10"
 libc = "0.2"
