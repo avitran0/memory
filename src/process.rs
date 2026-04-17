@@ -8,7 +8,7 @@ use std::{
 use bytemuck::{AnyBitPattern, NoUninit};
 
 use crate::{
-    maps::{MapsEntry, ProcessMap},
+    maps::{Library, ProcessMap},
     proc::find_pid,
 };
 
@@ -204,7 +204,7 @@ impl Process {
         Ok(())
     }
 
-    fn dump_library(&self, library: &MapsEntry) -> std::io::Result<Vec<u8>> {
+    fn dump_library(&self, library: &Library) -> std::io::Result<Vec<u8>> {
         let file = format!("/proc/{}/mem", self.pid);
         let file = File::open(file)?;
         let mut reader = BufReader::new(file);
@@ -215,7 +215,7 @@ impl Process {
         Ok(buf)
     }
 
-    pub fn scan(&self, pattern: &str, library: &MapsEntry) -> std::io::Result<usize> {
+    pub fn scan(&self, pattern: &str, library: &Library) -> std::io::Result<usize> {
         let mut bytes = Vec::with_capacity(8);
         let mut mask = Vec::with_capacity(8);
 
@@ -262,7 +262,7 @@ impl Process {
         ))
     }
 
-    pub fn find_export(&self, entry: &MapsEntry, name: &str) -> std::io::Result<usize> {
+    pub fn find_export(&self, entry: &Library, name: &str) -> std::io::Result<usize> {
         let data = std::fs::read(&entry.path)?;
         match self.name.kind {
             ProcessKind::Native => {

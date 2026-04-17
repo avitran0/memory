@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 /// Contains all loaded memory sections, read from `/proc/{pid}/maps`
 pub struct ProcessMap {
-    entries: Vec<MapsEntry>,
+    entries: Vec<Library>,
 }
 
 impl ProcessMap {
@@ -12,7 +12,7 @@ impl ProcessMap {
 
         let mut entries = Vec::with_capacity(16);
         for line in content.lines() {
-            let Some(entry) = MapsEntry::parse(line) else {
+            let Some(entry) = Library::parse(line) else {
                 continue;
             };
             entries.push(entry);
@@ -23,7 +23,7 @@ impl ProcessMap {
         Ok(Self { entries })
     }
 
-    fn deduplicate(entries: &mut Vec<MapsEntry>) {
+    fn deduplicate(entries: &mut Vec<Library>) {
         let mut merged: HashMap<PathBuf, (usize, usize)> = HashMap::new();
 
         for entry in entries.drain(..) {
@@ -39,7 +39,7 @@ impl ProcessMap {
 
         *entries = merged
             .into_iter()
-            .map(|(kind, (start, end))| MapsEntry {
+            .map(|(kind, (start, end))| Library {
                 start,
                 end,
                 path: kind,
@@ -47,7 +47,7 @@ impl ProcessMap {
             .collect();
     }
 
-    pub fn find_library(&self, library: &str) -> Option<&MapsEntry> {
+    pub fn find_library(&self, library: &str) -> Option<&Library> {
         self.entries.iter().find(|entry| {
             let Some(file_name) = entry.path.file_name() else {
                 return false;
@@ -62,13 +62,13 @@ impl ProcessMap {
 
 /// Single entry in `/proc/{pid}/maps`
 #[derive(Debug, Clone)]
-pub struct MapsEntry {
+pub struct Library {
     pub start: usize,
     pub end: usize,
     pub path: PathBuf,
 }
 
-impl MapsEntry {
+impl Library {
     pub fn parse(entry: &str) -> Option<Self> {
         let parts: Vec<&str> = entry.split_ascii_whitespace().collect();
         if parts.len() < 6 {
