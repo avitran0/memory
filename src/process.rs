@@ -151,7 +151,10 @@ impl Process {
             }
 
             bytes.extend_from_slice(&buffer);
-            current_address += BATCH_SIZE;
+            current_address = match current_address.checked_add(BATCH_SIZE) {
+                Some(addr) => addr,
+                None => return String::new(),
+            };
         }
 
         String::from_utf8(bytes).unwrap_or_default()
