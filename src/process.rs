@@ -222,7 +222,7 @@ impl SharedProcess {
 
             bytes.extend_from_slice(&buffer);
             current_address = current_address
-                .checked_add(256)
+                .checked_add(BATCH_SIZE)
                 .ok_or_else(|| std::io::Error::other("Address overflow"))?;
         }
 
