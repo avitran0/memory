@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{BufReader, Error, ErrorKind, Read, Seek, SeekFrom},
 };
 
 use bytemuck::{AnyBitPattern, NoUninit};
@@ -40,8 +40,8 @@ impl SharedProcess {
             }
         }
         .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
+            Error::new(
+                ErrorKind::NotFound,
                 format!("Process {} was not found", name),
             )
         })?;
@@ -223,19 +223,19 @@ impl SharedProcess {
             bytes.extend_from_slice(&buffer);
             current_address = current_address
                 .checked_add(BATCH_SIZE)
-                .ok_or_else(|| std::io::Error::other("Address overflow"))?;
+                .ok_or_else(|| Error::other("Address overflow"))?;
         }
 
-        String::from_utf8(bytes).map_err(std::io::Error::other)
+        String::from_utf8(bytes).map_err(Error::other)
     }
 
     fn handle_error(result: isize, expected: isize) -> std::io::Result<()> {
         if result == -1 {
-            return Err(std::io::Error::last_os_error());
+            return Err(Error::last_os_error());
         }
 
         if result < expected {
-            return Err(std::io::Error::other(format!(
+            return Err(Error::other(format!(
                 "Partial transfer: {result} out of {expected} bytes"
             )));
         }
@@ -295,8 +295,8 @@ impl SharedProcess {
         }
 
         utils::info!("pattern {pattern} not found, might be outdated");
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
+        Err(Error::new(
+            ErrorKind::NotFound,
             format!("{} was not found", library.kind),
         ))
     }
@@ -378,5 +378,5 @@ impl std::fmt::Display for ProcessName {
 }
 
 pub(crate) trait PlatformProcess {
-    fn find_export(shared: &SharedProcess, entry: &MapsEntry) -> Option<usize>;
+    fn find_export(shared: &SharedProcess, entry: &MapsEntry) -> std::io::Result<usize>;
 }

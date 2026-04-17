@@ -1,3 +1,5 @@
+use std::io::{Error, ErrorKind};
+
 use crate::{
     maps::{EntryKind, MapsEntry},
     process::{PlatformProcess, SharedProcess},
@@ -6,24 +8,26 @@ use crate::{
 pub struct NativeProcess {}
 
 impl PlatformProcess for NativeProcess {
-    fn find_export(shared: &SharedProcess, entry: &MapsEntry) -> Option<usize> {
+    fn find_export(shared: &SharedProcess, entry: &MapsEntry) -> std::io::Result<usize> {
         let EntryKind::File(_) = entry.kind else {
-            return None;
+            return Err(std::io::Error::other("Not a library"));
         };
 
-        let header: elf::Header = shared.read(entry.start);
+        let header: elf::Header = shared.read(entry.start)?;
         if header.ident.magic != [0x7F, b'E', b'L', b'F'] {
-            return None;
+            return Err(std::io::Error::other("Invalid magic"));
         }
 
-        let sections = Self::elf_sections(shared, &header);
-        let string_table = sections.get(header.shstrndx as usize)?;
+        let sections = Self::elf_sections(shared, &header)?;
+        let _string_table = sections.get(header.shstrndx as usize).ok_or(Error::new(
+            std::io::ErrorKind::NotFound,
+            "Failed to find string table",
+        ));
 
-        let dynamic = sections.iter().find(|section| {
-            let name = string_
-        })
-
-        None
+        Err(Error::new(
+            ErrorKind::NotFound,
+            format!("Failed to find export {}", entry.kind),
+        ))
     }
 }
 
@@ -31,7 +35,7 @@ impl NativeProcess {
     fn elf_sections(
         shared: &SharedProcess,
         header: &elf::Header,
-    ) -> Vec<elf::SectionHeader> {
+    ) -> std::io::Result<Vec<elf::SectionHeader>> {
         shared.read_vec(
             header.shoff as usize,
             header.shentsize as usize,
