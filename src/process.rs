@@ -13,25 +13,13 @@ use crate::{
 };
 
 pub struct Process {
-    shared: SharedProcess,
     name: ProcessName,
-}
-
-impl Process {
-    pub fn open(name: ProcessName) -> std::io::Result<Self> {
-        let shared = SharedProcess::open(name)?;
-
-        Ok(Self { shared, name })
-    }
-}
-
-pub(crate) struct SharedProcess {
     pid: i32,
     map: ProcessMap,
     string_cache: RefCell<HashMap<usize, String>>,
 }
 
-impl SharedProcess {
+impl Process {
     pub fn open(name: ProcessName) -> std::io::Result<Self> {
         let pid = match name.kind {
             ProcessKind::Native => find_pid(|exe, _| exe == name.name),
@@ -305,6 +293,18 @@ impl SharedProcess {
         ))
     }
 
+    fn find_export(&self, entry: &MapsEntry, name: &str) -> std::io::Result<usize> {
+        let data = self.dump_library(entry)?;
+        match self.name.kind {
+            ProcessKind::Native => {
+                let elf = goblin::elf::Elf::parse(&data).map_err(Error::other)?;
+            }
+            ProcessKind::Proton => {
+                let pe = goblin::pe::PE::parse(&data).map_err(Error::other)?;
+            }
+        }
+    }
+
     pub fn map(&self) -> &ProcessMap {
         &self.map
     }
@@ -383,8 +383,4 @@ impl std::fmt::Display for ProcessName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
     }
-}
-
-pub(crate) trait PlatformProcess {
-    fn find_export(shared: &SharedProcess, entry: &MapsEntry, name: &str) -> std::io::Result<usize>;
 }
