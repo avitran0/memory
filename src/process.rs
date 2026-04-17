@@ -8,7 +8,7 @@ use std::{
 use bytemuck::{AnyBitPattern, NoUninit};
 
 use crate::{
-    maps::{MapsEntry, ProcessMap},
+    maps::{EntryKind, MapsEntry, ProcessMap},
     proc::find_pid,
 };
 
@@ -299,7 +299,10 @@ impl Process {
     }
 
     pub fn find_export(&self, entry: &MapsEntry, name: &str) -> std::io::Result<usize> {
-        let data = self.dump_library(entry)?;
+        let EntryKind::File(file) = &entry.kind else {
+            return Err(Error::other("Not a file-backed entry"));
+        };
+        let data = std::fs::read(file)?;
         match self.name.kind {
             ProcessKind::Native => {
                 let elf = goblin::elf::Elf::parse(&data).map_err(Error::other)?;
@@ -416,5 +419,27 @@ pub enum ProcessKind {
 impl std::fmt::Display for ProcessName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Process;
+
+    fn current_process() -> Process {
+        let pid = std::process::id().cast_signed();
+        Process::open_pid(pid, None).expect("Failed to open current process")
+    }
+
+    #[test]
+    fn test_find_export_strlen() {
+        let process = current_process();
+        let libc = process
+            .map()
+            .find_library("libc.so")
+            .expect("Failed to find libc");
+
+        let function = process.find_export(libc, "process_vm_readv");
+        assert!(function.is_ok());
     }
 }
