@@ -363,8 +363,8 @@ fn scan_simd(bytes: &[u8], mask: &[u8], library: &[u8]) -> Option<usize> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProcessName {
-    name: &'static str,
-    kind: ProcessKind,
+    pub name: &'static str,
+    pub kind: ProcessKind,
 }
 
 #[derive(Debug, Clone, Copy)]
