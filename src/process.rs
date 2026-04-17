@@ -93,7 +93,7 @@ impl SharedProcess {
         address: usize,
         stride: usize,
         count: usize,
-    ) -> Vec<T> {
+    ) -> std::io::Result<Vec<T>> {
         let size = size_of::<T>();
         assert!(stride >= size);
 
@@ -108,7 +108,7 @@ impl SharedProcess {
             iov_len: buffer.len(),
         };
 
-        unsafe {
+        let result = unsafe {
             libc::process_vm_readv(
                 self.pid,
                 &raw const local_iov,
@@ -116,8 +116,10 @@ impl SharedProcess {
                 &raw const remote_iov,
                 1,
                 0,
-            );
-        }
+            )
+        };
+
+        Self::handle_error(result, buffer.len().cast_signed())?;
 
         let mut result = vec![T::default(); count];
         let result_ptr = result.as_mut_ptr().cast::<u8>();
@@ -130,7 +132,7 @@ impl SharedProcess {
             }
         }
 
-        result
+        Ok(result)
     }
 
     pub fn read_bytes<const BYTES: usize>(&self, address: usize) -> std::io::Result<[u8; BYTES]> {
@@ -161,8 +163,12 @@ impl SharedProcess {
         Ok(value)
     }
 
-    pub fn write<T: NoUninit>(&self, address: usize, value: T) -> std::io::Result<()> {
-        let mut buffer = bytemuck::bytes_of(&value).to_vec();
+    pub fn write<T: AnyBitPattern + NoUninit>(
+        &self,
+        address: usize,
+        mut value: T,
+    ) -> std::io::Result<()> {
+        let buffer = bytemuck::bytes_of_mut(&mut value);
 
         let local_iov = libc::iovec {
             iov_base: buffer.as_mut_ptr().cast(),
@@ -228,28 +234,18 @@ impl SharedProcess {
         Ok(())
     }
 
-    fn dump_library(&self, library: &MapsEntry) -> Option<Vec<u8>> {
+    fn dump_library(&self, library: &MapsEntry) -> std::io::Result<Vec<u8>> {
         let file = format!("/proc/{}/mem", self.pid);
-        let file = match File::open(file) {
-            Ok(file) => file,
-            Err(_) => {
-                utils::warn!("failed to dump library \"{}\"", library.kind);
-                return None;
-            }
-        };
+        let file = File::open(file)?;
         let mut reader = BufReader::new(file);
 
-        if reader.seek(SeekFrom::Start(library.start as u64)).is_err() {
-            return None;
-        }
+        reader.seek(SeekFrom::Start(library.start as u64))?;
         let mut buf = vec![0; library.end - library.start];
-        if reader.read_exact(&mut buf).is_err() {
-            return None;
-        }
-        Some(buf)
+        reader.read_exact(&mut buf)?;
+        Ok(buf)
     }
 
-    pub fn scan(&self, pattern: &str, library: &MapsEntry) -> Option<usize> {
+    pub fn scan(&self, pattern: &str, library: &MapsEntry) -> std::io::Result<usize> {
         let mut bytes = Vec::with_capacity(8);
         let mut mask = Vec::with_capacity(8);
 
@@ -274,7 +270,7 @@ impl SharedProcess {
 
         let module = self.dump_library(library)?;
         if module.len() < 500 {
-            return None;
+            return Err(std::io::Error::other("Not a valid Library"));
         }
 
         let scan_func = if bytes.len() <= 32 && is_x86_feature_detected!("avx2") {
@@ -286,11 +282,14 @@ impl SharedProcess {
         if let Some(address) =
             scan_func(&bytes, &mask, &module).map(|address| library.start + address)
         {
-            return Some(address);
+            return Ok(address);
         }
 
         utils::info!("pattern {pattern} not found, might be outdated");
-        None
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("{} was not found", library.kind),
+        ))
     }
 }
 
