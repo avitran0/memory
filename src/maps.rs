@@ -24,10 +24,10 @@ impl ProcessMap {
     }
 
     fn deduplicate(entries: &mut Vec<MapsEntry>) {
-        let mut merged: HashMap<EntryKind, (usize, usize)> = HashMap::new();
+        let mut merged: HashMap<PathBuf, (usize, usize)> = HashMap::new();
 
         for entry in entries.drain(..) {
-            let key = entry.kind.clone();
+            let key = entry.path.clone();
 
             if let Some((start, end)) = merged.get_mut(&key) {
                 *start = (*start).min(entry.start);
@@ -39,16 +39,17 @@ impl ProcessMap {
 
         *entries = merged
             .into_iter()
-            .map(|(kind, (start, end))| MapsEntry { start, end, kind })
+            .map(|(kind, (start, end))| MapsEntry {
+                start,
+                end,
+                path: kind,
+            })
             .collect();
     }
 
     pub fn find_library(&self, library: &str) -> Option<&MapsEntry> {
         self.entries.iter().find(|entry| {
-            let EntryKind::File(file) = &entry.kind else {
-                return false;
-            };
-            let Some(file_name) = file.file_name() else {
+            let Some(file_name) = entry.path.file_name() else {
                 return false;
             };
             let Some(file_name) = file_name.to_str() else {
@@ -64,13 +65,13 @@ impl ProcessMap {
 pub struct MapsEntry {
     pub start: usize,
     pub end: usize,
-    pub kind: EntryKind,
+    pub path: PathBuf,
 }
 
 impl MapsEntry {
     pub fn parse(entry: &str) -> Option<Self> {
         let parts: Vec<&str> = entry.split_ascii_whitespace().collect();
-        if parts.len() < 5 {
+        if parts.len() < 6 {
             return None;
         }
 
@@ -82,43 +83,8 @@ impl MapsEntry {
             return None;
         };
 
-        let kind = match parts.get(5) {
-            Some(pathname) => match *pathname {
-                "[stack]" => EntryKind::Stack,
-                "[heap]" => EntryKind::Heap,
-                "[vvar]" | "[vvar_clock]" | "[vdso]" | "[vsyscall]" => return None,
-                other => EntryKind::File(PathBuf::from(other)),
-            },
-            None => EntryKind::Anonymous,
-        };
+        let path = PathBuf::from(parts[5]);
 
-        Some(Self { start, end, kind })
-    }
-}
-
-/// Corresponds to `pathname` in maps.
-///
-/// `vdso`, `vvar` and some others are purposefully omitted,
-/// since they are not needed.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum EntryKind {
-    Anonymous,
-    Stack,
-    Heap,
-    File(PathBuf),
-}
-
-impl std::fmt::Display for EntryKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::Anonymous => "[anonymous]",
-                Self::Stack => "[stack]",
-                Self::Heap => "[heap]",
-                Self::File(path) => path.to_str().unwrap_or_default(),
-            }
-        )
+        Some(Self { start, end, path })
     }
 }

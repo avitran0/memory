@@ -8,7 +8,7 @@ use std::{
 use bytemuck::{AnyBitPattern, NoUninit};
 
 use crate::{
-    maps::{EntryKind, MapsEntry, ProcessMap},
+    maps::{MapsEntry, ProcessMap},
     proc::find_pid,
 };
 
@@ -258,15 +258,12 @@ impl Process {
         utils::info!("pattern {pattern} not found, might be outdated");
         Err(Error::new(
             ErrorKind::NotFound,
-            format!("{} was not found", library.kind),
+            format!("{} was not found", library.path.display()),
         ))
     }
 
     pub fn find_export(&self, entry: &MapsEntry, name: &str) -> std::io::Result<usize> {
-        let EntryKind::File(file) = &entry.kind else {
-            return Err(Error::other("Not a file-backed entry"));
-        };
-        let data = std::fs::read(file)?;
+        let data = std::fs::read(&entry.path)?;
         match self.name.kind {
             ProcessKind::Native => {
                 let elf = goblin::elf::Elf::parse(&data).map_err(Error::other)?;
