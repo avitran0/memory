@@ -24,7 +24,7 @@ impl Process {
         let pid = match name.kind {
             ProcessKind::Native => find_pid(|exe, _| exe == name.name),
             ProcessKind::Proton => {
-                find_pid(|exe, cmdline| exe == "wine64-preloader" && cmdline.ends_with(name.name))
+                find_pid(|exe, cmdline| exe == "wine64-preloader" && cmdline.contains(name.name))
             }
         }
         .ok_or_else(|| {
