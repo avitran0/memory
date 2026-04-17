@@ -206,15 +206,24 @@ impl SharedProcess {
     }
 
     pub fn read_string_uncached(&self, address: usize) -> std::io::Result<String> {
-        let mut bytes = Vec::with_capacity(8);
-        let mut i = address;
+        const BATCH_SIZE: usize = 64;
+        let mut bytes = Vec::with_capacity(BATCH_SIZE);
+        let mut buffer = [0u8; BATCH_SIZE];
+        let mut current_address = address;
+
         loop {
-            let c = self.read::<u8>(i)?;
-            if c == 0 {
+            let chunk = self.read_bytes::<BATCH_SIZE>(current_address)?;
+            buffer.copy_from_slice(&chunk);
+
+            if let Some(null_pos) = buffer.iter().position(|&b| b == 0) {
+                bytes.extend_from_slice(&buffer[..null_pos]);
                 break;
             }
-            bytes.push(c);
-            i += 1;
+
+            bytes.extend_from_slice(&buffer);
+            current_address = current_address
+                .checked_add(256)
+                .ok_or_else(|| std::io::Error::other("Address overflow"))?;
         }
 
         String::from_utf8(bytes).map_err(std::io::Error::other)
@@ -295,8 +304,11 @@ impl SharedProcess {
 
 fn scan_normal(bytes: &[u8], mask: &[u8], library: &[u8]) -> Option<usize> {
     let pattern_length = bytes.len();
+    if pattern_length == 0 || library.len() < pattern_length {
+        return None;
+    }
     let stop_index = library.len() - pattern_length;
-    'outer: for i in 0..stop_index {
+    'outer: for i in 0..=stop_index {
         for j in 0..pattern_length {
             if mask[j] == 0xFF && library[i + j] != bytes[j] {
                 continue 'outer;
@@ -317,6 +329,10 @@ fn scan_simd(bytes: &[u8], mask: &[u8], library: &[u8]) -> Option<usize> {
     assert_eq!(mask.len(), pattern_length);
     assert_eq!(mask[0], 0xFF);
 
+    if library.len() < 32 {
+        return None;
+    }
+
     let stop_index = library.len() - 32;
 
     let mut pattern_padded = [0u8; 32];
@@ -327,7 +343,7 @@ fn scan_simd(bytes: &[u8], mask: &[u8], library: &[u8]) -> Option<usize> {
     let pattern = unsafe { _mm256_loadu_si256(pattern_padded.as_ptr().cast::<__m256i>()) };
     let mask = unsafe { _mm256_loadu_si256(mask_padded.as_ptr().cast::<__m256i>()) };
 
-    for i in 0..stop_index {
+    for i in 0..=stop_index {
         if library[i] != bytes[0] {
             continue;
         }
