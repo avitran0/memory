@@ -56,7 +56,10 @@ impl SharedProcess {
         })
     }
 
-    pub fn read<T: Default + AnyBitPattern + NoUninit>(&self, address: usize) -> T {
+    pub fn read<T: Default + AnyBitPattern + NoUninit>(
+        &self,
+        address: usize,
+    ) -> std::io::Result<T> {
         let mut value = T::default();
         let buffer = bytemuck::bytes_of_mut(&mut value);
 
@@ -69,7 +72,7 @@ impl SharedProcess {
             iov_len: buffer.len(),
         };
 
-        unsafe {
+        let result = unsafe {
             libc::process_vm_readv(
                 self.pid,
                 &raw const local_iov,
@@ -77,10 +80,12 @@ impl SharedProcess {
                 &raw const remote_iov,
                 1,
                 0,
-            );
-        }
+            )
+        };
 
-        value
+        Self::handle_error(result, size_of::<T>().cast_signed())?;
+
+        Ok(value)
     }
 
     pub fn read_vec<T: Default + AnyBitPattern>(
@@ -128,7 +133,7 @@ impl SharedProcess {
         result
     }
 
-    pub fn read_bytes<const BYTES: usize>(&self, address: usize) -> [u8; BYTES] {
+    pub fn read_bytes<const BYTES: usize>(&self, address: usize) -> std::io::Result<[u8; BYTES]> {
         let mut value = [0; BYTES];
 
         let local_iov = libc::iovec {
@@ -140,7 +145,7 @@ impl SharedProcess {
             iov_len: value.len(),
         };
 
-        unsafe {
+        let result = unsafe {
             libc::process_vm_readv(
                 self.pid,
                 &raw const local_iov,
@@ -148,13 +153,15 @@ impl SharedProcess {
                 &raw const remote_iov,
                 1,
                 0,
-            );
-        }
+            )
+        };
 
-        value
+        Self::handle_error(result, BYTES.cast_signed())?;
+
+        Ok(value)
     }
 
-    pub fn write<T: NoUninit>(&self, address: usize, value: T) {
+    pub fn write<T: NoUninit>(&self, address: usize, value: T) -> std::io::Result<()> {
         let mut buffer = bytemuck::bytes_of(&value).to_vec();
 
         let local_iov = libc::iovec {
@@ -166,7 +173,7 @@ impl SharedProcess {
             iov_len: buffer.len(),
         };
 
-        unsafe {
+        let result = unsafe {
             libc::process_vm_writev(
                 self.pid,
                 &raw const local_iov,
@@ -176,25 +183,27 @@ impl SharedProcess {
                 0,
             )
         };
+
+        Self::handle_error(result, size_of::<T>().cast_signed())
     }
 
-    pub fn read_string(&self, address: usize) -> String {
+    pub fn read_string(&self, address: usize) -> std::io::Result<String> {
         if let Some(cached) = self.string_cache.borrow().get(&address).cloned() {
-            return cached;
+            return Ok(cached);
         }
 
-        let string = self.read_string_uncached(address);
+        let string = self.read_string_uncached(address)?;
         self.string_cache
             .borrow_mut()
             .insert(address, string.clone());
-        string
+        Ok(string)
     }
 
-    pub fn read_string_uncached(&self, address: usize) -> String {
+    pub fn read_string_uncached(&self, address: usize) -> std::io::Result<String> {
         let mut bytes = Vec::with_capacity(8);
         let mut i = address;
         loop {
-            let c = self.read::<u8>(i);
+            let c = self.read::<u8>(i)?;
             if c == 0 {
                 break;
             }
@@ -202,7 +211,21 @@ impl SharedProcess {
             i += 1;
         }
 
-        String::from_utf8(bytes).unwrap_or_default()
+        String::from_utf8(bytes).map_err(std::io::Error::other)
+    }
+
+    fn handle_error(result: isize, expected: isize) -> std::io::Result<()> {
+        if result == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        if result < expected {
+            return Err(std::io::Error::other(format!(
+                "Partial transfer: {result} out of {expected} bytes"
+            )));
+        }
+
+        Ok(())
     }
 
     fn dump_library(&self, library: &MapsEntry) -> Option<Vec<u8>> {
