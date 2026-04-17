@@ -42,7 +42,7 @@ impl PlatformProcess for NativeProcess {
             let dyn_entry: elf::Dynamic = shared.read(entry.start + dyn_offset)?;
 
             match dyn_entry.tag {
-                4 => symtab_addr = dyn_entry.value as usize, // DT_SYMTAB
+                6 => symtab_addr = dyn_entry.value as usize, // DT_SYMTAB
                 5 => strtab_addr = dyn_entry.value as usize, // DT_STRTAB
                 0 => break,                                  // DT_NULL
                 _ => {}
