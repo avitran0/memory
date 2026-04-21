@@ -22,10 +22,12 @@ pub struct Process {
 impl Process {
     pub fn open(name: ProcessName) -> std::io::Result<Self> {
         let pid = match name.kind {
-            ProcessKind::Native => find_pid(|exe, _| exe == name.name),
-            ProcessKind::Proton => {
-                find_pid(|exe, cmdline| exe == "wine64-preloader" && cmdline.contains(name.name))
-            }
+            ProcessKind::Native => find_pid(|exe, _, _| exe == name.name),
+            ProcessKind::Proton { thread_name } => find_pid(|exe, cmdline, thrd| {
+                exe == "wine64-preloader"
+                    && cmdline.contains(name.name)
+                    && thrd.contains(thread_name)
+            }),
         }
         .ok_or_else(|| {
             Error::new(
@@ -269,7 +271,7 @@ impl Process {
                     format!("Export '{}' not found in ELF", name),
                 ))
             }
-            ProcessKind::Proton => {
+            ProcessKind::Proton { .. } => {
                 let pe = goblin::pe::PE::parse(&data).map_err(Error::other)?;
 
                 for export in &pe.exports {
@@ -373,7 +375,7 @@ pub struct ProcessName {
 #[derive(Debug, Clone, Copy)]
 pub enum ProcessKind {
     Native,
-    Proton,
+    Proton { thread_name: &'static str },
 }
 
 impl std::fmt::Display for ProcessName {

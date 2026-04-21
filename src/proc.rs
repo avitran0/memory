@@ -1,6 +1,6 @@
 use std::fs::{read_dir, read_link, read_to_string};
 
-pub(crate) fn find_pid(func: impl Fn(&str, &str) -> bool) -> Option<i32> {
+pub(crate) fn find_pid(func: impl Fn(&str, &str, &str) -> bool) -> Option<i32> {
     let Ok(read_dir) = read_dir("/proc") else {
         return None;
     };
@@ -41,7 +41,17 @@ pub(crate) fn find_pid(func: impl Fn(&str, &str) -> bool) -> Option<i32> {
             continue;
         };
 
-        if func(exe_name, &cmdline) {
+        let Ok(status) = read_to_string(process.path().join("status")) else {
+            continue;
+        };
+        let Some(thread_name) = status.lines().find(|line| line.starts_with("Name:")) else {
+            continue;
+        };
+        let Some(thread_name) = thread_name.split_once(':').map(|name| name.1.trim()) else {
+            continue;
+        };
+
+        if func(exe_name, &cmdline, thread_name) {
             let Ok(pid) = file_name.parse() else {
                 continue;
             };
@@ -62,7 +72,7 @@ mod test {
         let exe_name = exe.file_name().unwrap();
         let exe_name = exe_name.to_str().unwrap();
 
-        let found_pid = find_pid(|exe, _| exe == exe_name);
+        let found_pid = find_pid(|exe, _, _| exe == exe_name);
         assert!(found_pid.is_some());
         assert_eq!(std::process::id() as i32, found_pid.unwrap());
     }
